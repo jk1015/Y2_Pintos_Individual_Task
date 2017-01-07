@@ -1,0 +1,12 @@
+Pintos Task 0 Questions
+
+1. git clone https://gitlab.doc.ic.ac.uk/lab1617_autumn/pintos-task0_jk1015.git
+
+2. strcopy() does not check the bounds on the memory buffer that the string will be 
+   copied into, so if it is given a pointer to a string larger than the buffer the 
+   excess will overflow into arbitrary memory.
+
+3. By default there are 4 ticks per time slice and 100 ticks per second.
+   1 time slice = 4 ticks = 1/25 seconds
+
+4.  

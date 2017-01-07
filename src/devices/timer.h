@@ -2,7 +2,17 @@
 #define DEVICES_TIMER_H
 
 #include <round.h>
+#include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
+
+/* A semaphore for signaling the end of sleep along with sleep length. */
+struct sleep_timeout
+  {
+    struct semaphore sleep_sema; /* Upped when sleep ends. */
+    int64_t time;                /* End of sleep time. */
+    struct list_elem elem;       /* List element. */
+  };
 
 /* Number of timer interrupts per second. */
 #define TIMER_FREQ 100
