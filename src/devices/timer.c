@@ -33,6 +33,8 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 static void timer_wake(void);
+static bool compare_timeouts(const struct list_elem *elem1,
+                             const struct list_elem *elem2, void *aux);
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
@@ -97,20 +99,15 @@ timer_sleep (int64_t ticks)
   ASSERT (intr_get_level () == INTR_ON);
   int64_t end = timer_ticks () + ticks;
 
-  struct semaphore sem; //TODO rename
-  sema_init(&sem, 0);
+  struct semaphore alarm;
+  sema_init(&alarm, 0);
 
   struct sleep_timeout timeout;
-  timeout.sleep_sema = sem;
+  timeout.sleep_sema = &alarm;
   timeout.time = end;
 
-  list_push_front(&timeout_list, &(timeout.elem));
-  sema_down(&sem);
-
-  //int64_t start = timer_ticks ();
-  //ASSERT (intr_get_level () == INTR_ON);
-  //while (timer_elapsed (start) < ticks)
-  //  thread_yield ();
+  list_insert_ordered (&timeout_list, &(timeout.elem), *compare_timeouts, NULL);
+  sema_down(timeout.sleep_sema);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -183,6 +180,19 @@ timer_print_stats (void)
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
 
+/* Compares the end times of timeouts for ordered insertion */
+static bool
+compare_timeouts(const struct list_elem *elem1,
+                 const struct list_elem *elem2, void *aux UNUSED)
+{
+  struct sleep_timeout *timeout1
+    = list_entry (elem1, struct sleep_timeout, elem);
+  struct sleep_timeout *timeout2
+    = list_entry (elem2, struct sleep_timeout, elem);
+
+  return (timeout1->time) < (timeout2->time);
+}
+
 /* Wake sleeping threads if timeout has been reached */
 static void
 timer_wake(void)
@@ -195,12 +205,13 @@ timer_wake(void)
        current_elem = list_next(current_elem)) {
 
     struct sleep_timeout *timeout
-           = list_entry (current_elem, struct sleep_timeout, elem);
+             = list_entry (current_elem, struct sleep_timeout, elem);
 
-    if(timeout->time < ticks) {
-      sema_up(&(timeout->sleep_sema));
-      if(list_empty(&timeout_list)) printf("%s\n", "GOT HERE");
+    if(timeout->time <= ticks) {
       list_remove(current_elem);
+      sema_up(timeout->sleep_sema);
+    } else {
+      break;
     }
   }
 }
