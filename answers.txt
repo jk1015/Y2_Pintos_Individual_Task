@@ -2,11 +2,96 @@ Pintos Task 0 Questions
 
 1. git clone https://gitlab.doc.ic.ac.uk/lab1617_autumn/pintos-task0_jk1015.git
 
-2. strcopy() does not check the bounds on the memory buffer that the string will be 
-   copied into, so if it is given a pointer to a string larger than the buffer the 
-   excess will overflow into arbitrary memory.
+2. strcopy() does not check the bounds on the memory buffer that the string will
+   be copied into, so if it is given a pointer to a string larger than the
+   buffer the excess will overflow into arbitrary memory.
 
-3. By default there are 4 ticks per time slice and 100 ticks per second.
+3. By default there are 4 ticks per time slice and 100 ticks per second. Hence
    1 time slice = 4 ticks = 1/25 seconds
 
-4.  
+4. schedule is written under the assumption that it is called with interrupts
+   off and the current thread is not in the running state.
+   Initially schedule creates 3 thread pointers cur, next and prev. cur is
+   initialised by calling running_thread which returns a pointer to the current
+   thread. next is initialised by calling next_thread_to_run which returns
+   the first item of the list of processes which are ready to run are not
+   currently running, or the idle thread if no threads are ready. prev is set to
+   NULL. schedule then asserts its two preconditions and asserts
+   is_thread(next), checking that next is a valid thread. At this point it is
+   possible that, if cur were put in the THREAD_READY state, cur may be the same
+   thread as next if this happens switch_threads is not required so schedule
+   calls switch_threads only if cur != next. If this condition is satisfied
+   schedule then sets prev equal to switch_threads(cur, next) which switches the
+   current running_thread to next and returns cur in the context of next as the
+   running thread. The rest of the thread switch is handled by calling
+   thread_schedule_tail(prev).
+
+   thread_schedule_tail initialises a thread pointer by calling
+   running_thread, which now returns the thread that was switched to in the
+   call to switch_threads, it changes the state of that thread to THREAD_RUNNING
+   and begins a new time slice by setting thread_ticks to 0. Finally if the
+   status of prev (the previous thread in the new context) is THREAD_DYING it
+   finishes by calling palloc_free_page(prev), freeing the memory, destroying
+   the previous thread.
+
+   Throughout this process it is important that interrupts are disabled, within
+   the schedule function there are points at which threads have switched but the
+   thread status and other data have not been updated. This could pose problems
+   to an interrupt handler e.g. timer_interrupt using thread_ticks.
+
+
+5. The output of a program is reproducible if it is guaranteed to produce the
+   same output each time it is run. Pintos in QEMU is not necessarily
+   reproducible as timer interrupts are not guaranteed to occur at the same time
+   each time a program is run. This makes debugging significantly more difficult
+   as some bugs may only occur under certain circumstances (e.g. if an interrupt
+   occurs in a specific function) meaning bugs may appear and disappear on
+   different test runs. This not only makes it more difficult to identify some
+   bugs but also means tests must be run multiple times, a significant time-sink
+   for a large suite of real-time tests.
+
+6. #include <stdio.h>
+   #include <inttypes.h>
+   ...
+   uint64_t x = (val);
+   printf("%"PRId64, x);
+   ...
+
+7. Semaphores and Locks are implemented in a similar way. A semaphore contains
+   an unsigned int and a list of waiting threads, a lock contains the same
+   (by way of containing a semaphore) along with a pointer to the thread
+   currently holding the lock. The major difference between a semaphore
+   and a lock is that a lock may only be held by one thread at a time and this
+   thread is the only thread allowed to release or 'up' that lock.
+   Semaphores are initialised using sema_init which takes the initial value of
+   the semaphore as an argument, locks have an equivalent lock_init but are
+   initialised to 1 by default.
+   Any thread may increase the value of a semaphore by calling sema_up, and by
+   calling sema_down can be added to a queue of waiting threads stored by the
+   semaphore, if the value of the semaphore is positive and it has threads in
+   its waiting list then its value is decremented by 1 and one thread in the list
+   is allowed to continue.
+   Locks act similarly but with the difference mentioned above, when a thread
+   calls lock_acquire (down) it is added to a list of waiting threads with the
+   same behaviour as the list in a semaphore however when the thread is allowed
+   to continue it is said to have "acquired" the lock. Only the thread which has
+   acquired the lock is allowed to call lock_release (up) which increases the
+   value of the lock and in turn causes another thread in the waiting list to
+   acquire the lock.
+
+
+8. The structure of each thread is stored in a 4kb memory page with the thread
+   struct itself stored at offset 0 at the bottom of the page and the thread's
+   kernel stack growing downwards from offset 4kB at the top of the page. Thus
+   the kernel stack and the thread struct combined must not exceed 4kB or they
+   will overflow into one another. If the struct becomes to large it severely
+   limits the potential size of the stack hence it should be kept as small as
+   possible. If too much is stored in the stack (4kB - sizeof(struct thread)) it
+   will overflow and corrupt the state of the thread, so large items of memory
+   should be stored on the heap.
+   If the stack does overflow it will overwrite the magic number stored at the
+   top of struct thread, hence ASSERT (is_thread (t)) will fail in another
+   function (most likely thread_current) and the program will crash.
+
+9. /src/devices/build/tests/devices/alarm-multiple.output
+   /src/devices/build/tests/devices/alarm-multiple.result

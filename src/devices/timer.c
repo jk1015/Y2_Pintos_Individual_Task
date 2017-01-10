@@ -25,7 +25,10 @@ static int64_t ticks;
 static unsigned loops_per_tick;
 
 /* List of semaphores for waking sleeping threads and list of timeouts*/
-struct list timeout_list;
+static struct list timeout_list;
+/* Semaphore controlling access to timeout_list */
+static struct semaphore timeout_semaphore;
+
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
@@ -41,7 +44,7 @@ void
 timer_init (void)
 {
   list_init (&timeout_list);
-
+  sema_init (&timeout_semaphore, 1);
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -96,8 +99,9 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks)
 {
-  ASSERT (intr_get_level () == INTR_ON);
+
   int64_t end = timer_ticks () + ticks;
+  ASSERT (intr_get_level () == INTR_ON);
 
   struct semaphore alarm;
   sema_init(&alarm, 0);
@@ -106,7 +110,12 @@ timer_sleep (int64_t ticks)
   timeout.sleep_sema = &alarm;
   timeout.time = end;
 
+  sema_down(&timeout_semaphore);
+  enum intr_level old_level = intr_disable();
   list_insert_ordered (&timeout_list, &(timeout.elem), *compare_timeouts, NULL);
+  intr_set_level(old_level);
+  sema_up(&timeout_semaphore);
+
   sema_down(timeout.sleep_sema);
 }
 
@@ -193,11 +202,10 @@ compare_timeouts(const struct list_elem *elem1,
   return (timeout1->time) < (timeout2->time);
 }
 
-/* Wake sleeping threads if timeout has been reached */
+/* Wake sleeping threads if their timeout has been reached */
 static void
 timer_wake(void)
 {
-
   struct list_elem *current_elem;
 
   for (current_elem = list_begin(&timeout_list);

@@ -1,0 +1,93 @@
+            +----------------------+
+            |        OS 211        |
+            |  TASK 0: ALARMCLOCK  |
+            |    DESIGN DOCUMENT   |
+            +----------------------+
+
+---- GROUP ----
+
+James Knight <jk1015@imperial.ac.uk>
+
+---- PRELIMINARIES ----
+
+                 ALARM CLOCK
+                 ===========
+
+---- DATA STRUCTURES ----
+
+>> A1: (2 marks)
+
+Contains a semaphore which when upped will awaken a thread put to sleep in
+timer_sleep and time after which timer_wake should up the semaphore.
+struct sleep_timeout
+  {
+    struct semaphore *sleep_sema;
+    int64_t time;
+    struct list_elem elem;
+  };
+
+
+List of sleep_timeouts to be checked by timer_wake during each call to
+timer_interrupt.
+static struct list timeout_list;
+
+
+Semaphore controlling access to timeout_list, downed before list access in
+timer_sleep to prevent simultaneous access by multiple threads.
+static struct semaphore timeout_semaphore;
+
+
+---- ALGORITHMS ----
+
+>> A2: (2 marks)
+timer_sleep calculates the wake up time for the thread by adding the ticks
+argument to the current timer ticks and creates a semaphore initialised to 0
+these are then added to a sleep_timeout. timeout_semaphore is then downed
+so the current thread waits until timeout_list is not being accessed then
+the sleep_timeout is added to timeout_list, timeout semaphore is then upped
+to re-allow access to timeout_list and the newly created semaphor is downed
+causing the thread to sleep.
+The interupt handler increases the number of ticks by one and calls timer_wake.
+timer_wake iterates through timeout_list removing any sleep_timeout with a
+wake time below the current number of ticks and upping its semaphore of waking
+the associated threads.
+
+>> A3: (2 marks)
+When items are added to timeout_list in a call to timer_sleep they are inserted
+in order. Thus rather than having to iterate through the entire list of
+sleep_timeouts timer_wake can terminate as soon as it encounters a wake time
+above the current ticks. This dramatically lessens the number of loop
+iterations in thread_wake. In the most common case, an interrupt in which no
+threads are awakened this means thread_wake must only examine a single
+sleep_timeout.
+---- SYNCHRONIZATION ----
+
+>> A4: (1 mark)
+The only global variable accessed in timer_sleep is timeout_list. In order
+to prevent multiple threads attempting to access timeout_list simultaneously
+timeout_semaphore is initialised to 0, downed before the access and upped after
+the access. This causes a thread trying to access timeout_list to sleep if
+timeout_list is being accessed by another thread thus only allowing one thread
+access at a time.
+
+
+>> A5: (1 mark)
+Since timer_interrupt is an external interrupt it is not allowed to sleep and
+therefore cannot use the timeout_semaphore to prevent race conditions with
+timer_sleep. Therefore the only way to prevent a race between timer_wake and
+timer_sleep is disable external interrupts while timer_sleep is accessing 
+timeout_list.
+---- RATIONALE ----
+
+>> A6: (2 marks)
+I chose this design because it was the most efficient design I considered which
+used the provided data structures (i.e. The linked list). Another design with
+a purpose built data structure may have been slightly more efficient, but the
+performance gained would not be proportional to the work required.
+
+Another design considered was to use two lists one of semaphores and one of
+wake times rather than defining the sleep_timeout struct.The design I
+ultimately chose was superior as it required less time to be spent in the timer
+interrupt. Had I used two lists timer_wake would be required to iterate through
+both lists in cases where items must be removed and to remove twice as many
+items, doubling the length of the timer_wake portion of the timer interrupt.
